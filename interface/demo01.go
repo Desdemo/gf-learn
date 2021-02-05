@@ -25,24 +25,30 @@ type Person struct {
 
 func (p Person) List(req interface{}, authorityId int64) (result *Result, err error) {
 	result = &Result{}
-	reqs := req.(*Request)
 	ps := make([]Person, 0)
-	if reqs != nil {
-		p := reqs.Data.(*Person)
-		if p != nil {
-			resu, err := reqs.DBService.DB.Model(p.TableName()).Safe().FindAll()
-			if err != nil {
-				return nil, err
-			}
-			if !resu.IsEmpty() {
-				resu.Structs(&ps)
-				result.DataList = ps
-				return result, nil
-			}
-
+	model := p.Model(req)
+	if model != nil {
+		resu, err := p.Model(req).FindAll()
+		if err != nil {
+			return nil, err
+		}
+		if !resu.IsEmpty() {
+			resu.Structs(&ps)
+			result.DataList = ps
+			return result, nil
 		}
 	}
 	return nil, err
+}
+func (p Person) Model(req interface{}) (model *gdb.Model) {
+	reqs := req.(*Request)
+	if reqs != nil {
+		person := reqs.Data.(*Person)
+		if person != nil {
+			model = reqs.DBService.DB.Model(p.TableName()).Safe()
+		}
+	}
+	return model
 }
 
 func (p Person) TableName() string {
@@ -51,7 +57,8 @@ func (p Person) TableName() string {
 
 type Entity interface {
 	TableName() string
-	List(req interface{}, authorityId int64)  (result *Result, err error)
+	List(req interface{}, authorityId int64) (result *Result, err error)
+	Model(req interface{}) *gdb.Model
 }
 
 type Request struct {
@@ -81,7 +88,6 @@ type Result struct {
 /*
 	API method
 */
-
 type ServiceOperator interface {
 	NewService(tenant string, object Entity) (*DBService, error)
 	List(req interface{}, authorityId int64, entity Entity) (result *Result, err error)
@@ -115,11 +121,11 @@ func GetList(r *ghttp.Request, object ServiceOperator, entity Entity) {
 	// 权限
 	id := r.GetInt64("id")
 	// 初始化service
-
 	service, err := object.NewService(tenant, entity)
 	if err != nil {
 		ResponseJson(r, 1, err.Error())
 	}
+	// 分页
 	page := &Page{
 		Size:    r.GetInt64("size"),
 		Current: r.GetInt64("current"),
@@ -127,7 +133,7 @@ func GetList(r *ghttp.Request, object ServiceOperator, entity Entity) {
 	req := &Request{
 		DBService: service,
 		Page:      page,
-		Data: entity,
+		Data:      entity,
 	}
 	if err := r.Parse(&req); err != nil {
 		ResponseJson(r, -1, err.Error())
@@ -150,8 +156,7 @@ func GetList(r *ghttp.Request, object ServiceOperator, entity Entity) {
 type TestController struct{}
 
 func (t TestController) GetList(r *ghttp.Request) {
-	req := &Request{}
-	GetList(r, req, new(Person))
+	GetList(r, new(Request), new(Person))
 }
 func main() {
 	s := g.Server()
